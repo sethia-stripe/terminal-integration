@@ -1,5 +1,6 @@
 package com.example.terminalintegration.payments
 
+import android.annotation.SuppressLint
 import android.content.Context
 import com.example.terminalintegration.BuildConfig
 import com.example.terminalintegration.Utils
@@ -65,14 +66,16 @@ class PaymentSDK(
 
     suspend fun subscribe(onEvent: (TerminalReaderEvent) -> Unit) {
         readerEvents.collectLatest { event ->
-                coroutineContext.ensureActive()
-                Timber.tag(Utils.LOGTAG).d("reader event flow - sdk : $event")
-                onEvent(event)
-            }
+            coroutineContext.ensureActive()
+            Timber.tag(Utils.LOGTAG).d("reader event flow - sdk : $event")
+            onEvent(event)
+        }
     }
 
+    @SuppressLint("MissingPermission")
     fun discover(paymentPath: PaymentPath) {
         Timber.tag(Utils.LOGTAG).d("Discover reader flow - sdk")
+        onStop()
         val config = DiscoveryConfiguration.InternetDiscoveryConfiguration(
             isSimulated = false,
             location = BuildConfig.STRIPE_LOCATION_ID
@@ -87,11 +90,14 @@ class PaymentSDK(
             },
             object : Callback {
                 override fun onSuccess() {
-                    println("Finished discovering readers")
+
                 }
 
                 override fun onFailure(e: TerminalException) {
-                    e.printStackTrace()
+                    if (e.errorCode != TerminalException.TerminalErrorCode.CANCELED) {
+                        Timber.tag(Utils.LOGTAG).e(e)
+                        publishEvent(TerminalReaderEvent.ReadersDiscoveryFailure(e))
+                    }
                 }
             }
         )
@@ -123,8 +129,8 @@ class PaymentSDK(
         // make sure you cancel the discovery process or the SDK will be stuck in
         // a discover readers phase
         discoveryCancelable?.cancel(object : Callback {
-            override fun onSuccess() { }
-            override fun onFailure(e: TerminalException) { }
+            override fun onSuccess() {}
+            override fun onFailure(e: TerminalException) {}
         })
     }
 }

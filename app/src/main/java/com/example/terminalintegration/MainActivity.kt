@@ -77,8 +77,11 @@ class MainActivity : ComponentActivity() {
                 viewModel.makePaymentFlow.collectLatest {
                     Timber.tag(Utils.LOGTAG).d("make payment - activity")
                     paymentSDK.makePayment(it)
-                    Toast.makeText(this@MainActivity, "Make payment", Toast.LENGTH_SHORT).show()
+                    showToast("Make payment")
                 }
+            }
+            launch {
+                viewModel.toastFlow.collectLatest { showToast(it) }
             }
         }
         if (ContextCompat.checkSelfPermission(
@@ -91,6 +94,12 @@ class MainActivity : ComponentActivity() {
             ActivityCompat.requestPermissions(this, permissions, REQUEST_CODE_LOCATION)
         } else {
             viewModel.onLocationPermissionGranted()
+        }
+    }
+
+    private fun showToast(msg: String) {
+        if (msg.isNotBlank()) {
+            Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show()
         }
     }
 

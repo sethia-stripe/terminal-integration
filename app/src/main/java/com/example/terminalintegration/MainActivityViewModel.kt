@@ -35,6 +35,9 @@ class MainActivityViewModel @Inject constructor() : ViewModel() {
     private val _paymentState = MutableStateFlow<PaymentState>(PaymentState.Init)
     val paymentState: StateFlow<PaymentState> = _paymentState
 
+    private val _toastFlow = Channel<String>()
+    val toastFlow: Flow<String> = _toastFlow.receiveAsFlow()
+
     private var payment: Payment? = null
     private var path: PaymentPath? = null
 
@@ -50,7 +53,13 @@ class MainActivityViewModel @Inject constructor() : ViewModel() {
             is TerminalReaderEvent.ReadersDiscovered -> onReadersDiscovered(event.list)
             is TerminalReaderEvent.ReaderConnected -> onReaderConnected(event.reader)
             is TerminalReaderEvent.PaymentResponse -> onPaymentResponse(event)
+            is TerminalReaderEvent.ReadersDiscoveryFailure -> onDiscoveryError(event.e)
         }
+    }
+
+    private fun onDiscoveryError(e: Throwable) {
+        updateState(PaymentState.Init)
+        sendToast(e.message.toString())
     }
 
     private fun onPaymentResponse(response: TerminalReaderEvent.PaymentResponse) {
@@ -61,13 +70,19 @@ class MainActivityViewModel @Inject constructor() : ViewModel() {
         }
     }
 
+    private fun sendToast(msg: String) {
+        viewModelScope.launch { _toastFlow.send(msg) }
+    }
+
     private fun onReaderDisconnected() {
+        updateState(PaymentState.Init)
         discoverReaders()
     }
 
     private fun discoverReaders() {
         path?.also {
             Timber.tag(Utils.LOGTAG).d("Discover reader flow - viewmodel")
+            updateState(PaymentState.Discovering)
             viewModelScope.launch {
                 _discoverReaderFlow.send(it)
             }
@@ -75,15 +90,21 @@ class MainActivityViewModel @Inject constructor() : ViewModel() {
     }
 
     private fun onReaderConnected(reader: Reader) {
+        updateState(PaymentState.Connected(reader))
         payment?.also {
-            updateState(PaymentState.PaymentInitiated(it))
             Timber.tag(Utils.LOGTAG).d("make payment flow - viewmodel")
             viewModelScope.launch { _makePaymentFlow.send(it) }
+            updateState(PaymentState.PaymentInitiated(it))
         }
     }
 
     private fun onReadersDiscovered(list: List<Reader>) {
-        updateState(PaymentState.Discovered(list))
+        if (list.isNotEmpty()) {
+            updateState(PaymentState.Discovered(list))
+        } else {
+            sendToast("No readers found")
+            updateState(PaymentState.Init)
+        }
     }
 
     fun onPayClicked(amount: Int, path: PaymentPath) {
@@ -102,6 +123,7 @@ class MainActivityViewModel @Inject constructor() : ViewModel() {
     }
 
     fun onReaderSelected(reader: Reader) {
+        updateState(PaymentState.Connecting(reader))
         viewModelScope.launch { _connectReaderFlow.send(reader) }
     }
 }

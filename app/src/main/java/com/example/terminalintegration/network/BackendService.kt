@@ -22,9 +22,10 @@ interface BackendService {
     @POST("/create_payment_intent")
     fun createPaymentIntent(
         @Field("amount") amount: Int,
-        @Field("currency")currency: String,
-        @Field(value = "payment_method_types[]")paymentMethods: List<String>? = null
+        @Field("currency") currency: String,
+        @Field(value = "payment_method_types[]") paymentMethods: List<String>? = null
     ): Call<PaymentIntent>
+
     /**
      * Capture a specific payment intent on our backend
      */
