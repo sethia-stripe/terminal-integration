@@ -1,9 +1,15 @@
+import com.android.build.gradle.internal.cxx.configure.gradleLocalProperties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     kotlin("kapt")
     id("com.google.dagger.hilt.android")
 }
+
+val stripeApiKey = gradleLocalProperties(rootDir).getProperty("stripe_api_key") ?: ""
+val stripeLocationId = gradleLocalProperties(rootDir).getProperty("stripe_location_id") ?: ""
+
 
 android {
     namespace = "com.example.terminalintegration"
@@ -23,6 +29,10 @@ android {
     }
 
     buildTypes {
+        debug {
+            buildConfigField("String", "STRIPE_API_KEY", stripeApiKey)
+            buildConfigField("String", "STRIPE_LOCATION_ID", stripeLocationId)
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
@@ -91,6 +101,8 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     implementation("com.stripe:stripeterminal:3.2.0")
+    implementation("com.stripe:stripe-java:17.14.0")
+
 }
 
 kapt {

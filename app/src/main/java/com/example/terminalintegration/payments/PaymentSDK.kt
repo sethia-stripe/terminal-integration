@@ -1,11 +1,9 @@
 package com.example.terminalintegration.payments
 
-import android.Manifest
 import android.content.Context
-import android.content.pm.PackageManager
-import androidx.core.app.ActivityCompat
-import com.example.terminalintegration.PaymentConfigProvider
+import com.example.terminalintegration.BuildConfig
 import com.example.terminalintegration.Utils
+import com.example.terminalintegration.network.TokenProvider
 import com.stripe.stripeterminal.Terminal
 import com.stripe.stripeterminal.external.callable.Callback
 import com.stripe.stripeterminal.external.callable.Cancelable
@@ -23,7 +21,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import javax.inject.Inject
@@ -34,8 +31,7 @@ import kotlin.coroutines.coroutineContext
 class PaymentSDK(
     private val context: Context,
     private val tokenProvider: TokenProvider,
-    private val coroutineScope: CoroutineScope,
-    private val paymentConfigProvider: PaymentConfigProvider
+    private val coroutineScope: CoroutineScope
 ) : TerminalListener {
 
     private var discoveryCancelable: Cancelable? = null
@@ -43,13 +39,11 @@ class PaymentSDK(
     @Inject
     constructor(
         @ApplicationContext context: Context,
-        tokenProvider: TokenProvider,
-        paymentConfigProvider: PaymentConfigProvider
+        tokenProvider: TokenProvider
     ) : this(
         context,
         tokenProvider,
-        CoroutineScope(SupervisorJob()),
-        paymentConfigProvider
+        CoroutineScope(SupervisorJob())
     )
 
     private val readerEvents = MutableSharedFlow<TerminalReaderEvent>()
@@ -81,7 +75,7 @@ class PaymentSDK(
         Timber.tag(Utils.LOGTAG).d("Discover reader flow - sdk")
         val config = DiscoveryConfiguration.InternetDiscoveryConfiguration(
             isSimulated = false,
-            location = paymentConfigProvider.config.locationId
+            location = BuildConfig.STRIPE_LOCATION_ID
         )
         discoveryCancelable = Terminal.getInstance().discoverReaders(
             config,
