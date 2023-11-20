@@ -1,4 +1,4 @@
-package com.example.terminalintegration.network
+package com.example.terminalintegration.payments.network
 
 import com.example.terminalintegration.BuildConfig
 import com.stripe.Stripe

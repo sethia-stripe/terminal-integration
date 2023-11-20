@@ -2,10 +2,10 @@ package com.example.terminalintegration
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.terminalintegration.payments.Payment
-import com.example.terminalintegration.payments.PaymentPath
-import com.example.terminalintegration.payments.PaymentState
-import com.example.terminalintegration.payments.TerminalReaderEvent
+import com.example.terminalintegration.payments.model.Payment
+import com.example.terminalintegration.payments.model.PaymentPath
+import com.example.terminalintegration.payments.model.PaymentState
+import com.example.terminalintegration.payments.model.TerminalReaderEvent
 import com.stripe.stripeterminal.external.models.Reader
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.channels.Channel

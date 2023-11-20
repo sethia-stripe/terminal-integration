@@ -19,6 +19,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.example.terminalintegration.payments.PaymentSDK
 import com.example.terminalintegration.ui.components.Cart
+import com.example.terminalintegration.ui.components.CartUIData
 import com.example.terminalintegration.ui.theme.TerminalIntegrationTheme
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
@@ -44,13 +45,14 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             val paymentState by viewModel.paymentState.collectAsStateWithLifecycle()
+            val readerInfo by paymentSDK.lastActiveReader.collectAsStateWithLifecycle()
             TerminalIntegrationTheme {
                 // A surface container using the 'background' color from the theme
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    Cart(paymentState, 1, 10, 5, { total, path ->
+                    Cart(CartUIData(paymentState, readerInfo), 1, 10, 5, { total, path ->
                         viewModel.onPayClicked(total, path)
                     }, {
                         viewModel.onDiscoveredDialogDismissed()

@@ -1,4 +1,4 @@
-package com.example.terminalintegration.payments
+package com.example.terminalintegration.payments.model
 
 import com.stripe.stripeterminal.external.models.Reader
 

@@ -3,8 +3,13 @@ package com.example.terminalintegration.payments
 import android.annotation.SuppressLint
 import android.content.Context
 import com.example.terminalintegration.BuildConfig
+import com.example.terminalintegration.StorageManager
 import com.example.terminalintegration.Utils
-import com.example.terminalintegration.network.TokenProvider
+import com.example.terminalintegration.payments.model.Payment
+import com.example.terminalintegration.payments.model.PaymentPath
+import com.example.terminalintegration.payments.model.ReaderInfo
+import com.example.terminalintegration.payments.model.TerminalReaderEvent
+import com.example.terminalintegration.payments.network.TokenProvider
 import com.stripe.stripeterminal.Terminal
 import com.stripe.stripeterminal.external.callable.Callback
 import com.stripe.stripeterminal.external.callable.Cancelable
@@ -21,6 +26,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import timber.log.Timber
@@ -32,18 +39,36 @@ import kotlin.coroutines.coroutineContext
 class PaymentSDK(
     private val context: Context,
     private val tokenProvider: TokenProvider,
+    private val storageManager: StorageManager,
     private val coroutineScope: CoroutineScope
 ) : TerminalListener {
 
     private var discoveryCancelable: Cancelable? = null
 
+    private val _lastActiveReader = MutableStateFlow<ReaderInfo?>(null)
+    val lastActiveReader: StateFlow<ReaderInfo?> = _lastActiveReader
+
+    companion object {
+        private const val KEY_READER_ID = "pk-reader-id"
+        private const val KEY_READER_LABEL = "pk-reader-label"
+    }
+
+    init {
+        updateReader(
+            storageManager.getString(KEY_READER_ID),
+            storageManager.getString(KEY_READER_LABEL)
+        )
+    }
+
     @Inject
     constructor(
         @ApplicationContext context: Context,
-        tokenProvider: TokenProvider
+        tokenProvider: TokenProvider,
+        storageManager: StorageManager
     ) : this(
         context,
         tokenProvider,
+        storageManager,
         CoroutineScope(SupervisorJob())
     )
 
@@ -109,6 +134,8 @@ class PaymentSDK(
         Terminal.getInstance().connectInternetReader(reader, config, object : ReaderCallback {
             override fun onSuccess(reader: Reader) {
                 Timber.tag(Utils.LOGTAG).d("connect reader flow - sdk : connected")
+                updateReader(reader.id, reader.label)
+                saveReader(reader)
                 publishEvent(TerminalReaderEvent.ReaderConnected(reader))
             }
 
@@ -117,6 +144,17 @@ class PaymentSDK(
                 publishEvent(TerminalReaderEvent.ReaderDisconnected)
             }
         })
+    }
+
+    private fun saveReader(reader: Reader) {
+        storageManager.putString(KEY_READER_ID, reader.id)
+        storageManager.putString(KEY_READER_LABEL, reader.label)
+    }
+
+    private fun updateReader(id: String?, label: String?) {
+        if (!id.isNullOrBlank() && !label.isNullOrBlank()) {
+            _lastActiveReader.value = ReaderInfo(id, label)
+        }
     }
 
     fun makePayment(payment: Payment) {

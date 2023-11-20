@@ -1,6 +1,6 @@
-package com.example.terminalintegration.network
+package com.example.terminalintegration.payments.network
 
-import com.example.terminalintegration.model.ConnectionToken
+import com.example.terminalintegration.payments.model.ConnectionToken
 import com.stripe.stripeterminal.external.models.PaymentIntent
 import retrofit2.Call
 import retrofit2.http.Field
