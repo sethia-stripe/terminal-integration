@@ -17,7 +17,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
-import com.example.terminalintegration.payments.PaymentSDK
 import com.example.terminalintegration.ui.components.Cart
 import com.example.terminalintegration.ui.components.CartUIData
 import com.example.terminalintegration.ui.theme.TerminalIntegrationTheme
@@ -26,8 +25,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
-import timber.log.Timber
-import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -38,50 +35,31 @@ class MainActivity : ComponentActivity() {
 
     private val viewModel: MainActivityViewModel by viewModels()
 
-    @Inject
-    lateinit var paymentSDK: PaymentSDK
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             val paymentState by viewModel.paymentState.collectAsStateWithLifecycle()
-            val readerInfo by paymentSDK.lastActiveReader.collectAsStateWithLifecycle()
+            val readerInfo by viewModel.lastActiveReader.collectAsStateWithLifecycle()
+            val payments by viewModel.payments.collectAsStateWithLifecycle()
             TerminalIntegrationTheme {
                 // A surface container using the 'background' color from the theme
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    Cart(CartUIData(paymentState, readerInfo), 1, 10, 5, { total, path ->
+                    Cart(CartUIData(1, 10.0, 5, paymentState, readerInfo, payments),  { total, path ->
                         viewModel.onPayClicked(total, path)
                     }, {
                         viewModel.onDiscoveredDialogDismissed()
                     }, {
                         viewModel.onReaderSelected(it)
+                    }, {
+                        viewModel.removeSavedReader()
                     })
                 }
             }
         }
         launchAndRepeatWithViewLifecycle(Lifecycle.State.RESUMED) {
-            launch {
-                viewModel.initializeTerminalFlow.collectLatest { initializePaymentSdk() }
-            }
-            launch {
-                viewModel.discoverReaderFlow.collectLatest {
-                    Timber.tag(Utils.LOGTAG).d("Discover reader flow - activity")
-                    paymentSDK.discover(it)
-                }
-            }
-            launch {
-                viewModel.connectReaderFlow.collectLatest { paymentSDK.connectReader(it) }
-            }
-            launch {
-                viewModel.makePaymentFlow.collectLatest {
-                    Timber.tag(Utils.LOGTAG).d("make payment - activity")
-                    paymentSDK.makePayment(it)
-                    showToast("Make payment")
-                }
-            }
             launch {
                 viewModel.toastFlow.collectLatest { showToast(it) }
             }
@@ -105,14 +83,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun initializePaymentSdk() {
-        Timber.tag(Utils.LOGTAG).d("Initialize sdk - activity")
-        paymentSDK.initialize()
-        lifecycleScope.launch {
-            paymentSDK.subscribe { viewModel.onReaderEvent(it) }
-        }
-    }
-
     override fun onRequestPermissionsResult(
         requestCode: Int,
         permissions: Array<String>,
@@ -131,7 +101,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
-        paymentSDK.onStop()
+        viewModel.onStop()
     }
 }
 

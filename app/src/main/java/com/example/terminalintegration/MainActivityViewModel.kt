@@ -2,6 +2,7 @@ package com.example.terminalintegration
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.terminalintegration.payments.PaymentSDK
 import com.example.terminalintegration.payments.model.Payment
 import com.example.terminalintegration.payments.model.PaymentPath
 import com.example.terminalintegration.payments.model.PaymentState
@@ -18,22 +19,16 @@ import timber.log.Timber
 import javax.inject.Inject
 
 @HiltViewModel
-class MainActivityViewModel @Inject constructor() : ViewModel() {
-
-    private val _initializeTerminalFlow = Channel<Unit>()
-    val initializeTerminalFlow: Flow<Unit> = _initializeTerminalFlow.receiveAsFlow()
-
-    private val _discoverReaderFlow = Channel<PaymentPath>()
-    val discoverReaderFlow: Flow<PaymentPath> = _discoverReaderFlow.receiveAsFlow()
-
-    private val _connectReaderFlow = Channel<Reader>()
-    val connectReaderFlow: Flow<Reader> = _connectReaderFlow.receiveAsFlow()
-
-    private val _makePaymentFlow = Channel<Payment>()
-    val makePaymentFlow: Flow<Payment> = _makePaymentFlow.receiveAsFlow()
+class MainActivityViewModel @Inject constructor(private val paymentSDK: PaymentSDK) : ViewModel() {
 
     private val _paymentState = MutableStateFlow<PaymentState>(PaymentState.Init)
     val paymentState: StateFlow<PaymentState> = _paymentState
+
+    private val pastPayments = mutableListOf<Payment>()
+    private val _payments = MutableStateFlow<List<Payment>>(pastPayments)
+    val payments: StateFlow<List<Payment>> = _payments
+
+    val lastActiveReader = paymentSDK.lastActiveReader
 
     private val _toastFlow = Channel<String>()
     val toastFlow: Flow<String> = _toastFlow.receiveAsFlow()
@@ -43,17 +38,18 @@ class MainActivityViewModel @Inject constructor() : ViewModel() {
 
     fun onLocationPermissionGranted() {
         Timber.tag(Utils.LOGTAG).d("Initialize sdk - viewmodel")
-        viewModelScope.launch { _initializeTerminalFlow.send(Unit) }
+        initializePaymentSdk()
     }
 
-    fun onReaderEvent(event: TerminalReaderEvent) {
+    private fun onReaderEvent(event: TerminalReaderEvent) {
         Timber.tag(Utils.LOGTAG).d("reader event flow - viewmodel : $event")
         when (event) {
             TerminalReaderEvent.ReaderDisconnected -> onReaderDisconnected()
             is TerminalReaderEvent.ReadersDiscovered -> onReadersDiscovered(event.list)
             is TerminalReaderEvent.ReaderConnected -> onReaderConnected(event.reader)
-            is TerminalReaderEvent.PaymentResponse -> onPaymentResponse(event)
             is TerminalReaderEvent.ReadersDiscoveryFailure -> onDiscoveryError(event.e)
+            is TerminalReaderEvent.PaymentError -> onPaymentError(event.error)
+            is TerminalReaderEvent.PaymentSuccess -> onPaymentResponse(event.status)
         }
     }
 
@@ -62,12 +58,25 @@ class MainActivityViewModel @Inject constructor() : ViewModel() {
         sendToast(e.message.toString())
     }
 
-    private fun onPaymentResponse(response: TerminalReaderEvent.PaymentResponse) {
-        if (response.success) {
-            updateState(PaymentState.PaymentSuccess(payment!!))
-        } else {
-            updateState(PaymentState.PaymentError(response.error.toString()))
+    private fun onPaymentResponse(status: String) {
+        sendToast("Payment successful")
+        payment?.run {
+            this.status = status
+            updateState(PaymentState.PaymentSuccess(this))
+            pastPayments.add(this)
+            _payments.value = pastPayments
+            resetPaymentVariables()
         }
+    }
+
+    private fun onPaymentError(error: Exception) {
+        sendToast("Payment failed: $error")
+        updateState(PaymentState.PaymentError(error.toString()))
+    }
+
+    private fun resetPaymentVariables() {
+        payment = null
+        path = null
     }
 
     private fun sendToast(msg: String) {
@@ -76,41 +85,52 @@ class MainActivityViewModel @Inject constructor() : ViewModel() {
 
     private fun onReaderDisconnected() {
         updateState(PaymentState.Init)
-        discoverReaders()
+        sendToast("Reader disconnected")
     }
 
     private fun discoverReaders() {
         path?.also {
             Timber.tag(Utils.LOGTAG).d("Discover reader flow - viewmodel")
             updateState(PaymentState.Discovering)
-            viewModelScope.launch {
-                _discoverReaderFlow.send(it)
-            }
+            paymentSDK.discover(it)
         }
     }
 
     private fun onReaderConnected(reader: Reader) {
         updateState(PaymentState.Connected(reader))
+        makePayment()
+    }
+
+    private fun makePayment() {
         payment?.also {
             Timber.tag(Utils.LOGTAG).d("make payment flow - viewmodel")
-            viewModelScope.launch { _makePaymentFlow.send(it) }
+            sendToast("Make Payment")
             updateState(PaymentState.PaymentInitiated(it))
+            paymentSDK.makePayment(it)
         }
     }
 
     private fun onReadersDiscovered(list: List<Reader>) {
         if (list.isNotEmpty()) {
-            updateState(PaymentState.Discovered(list))
+            list.find { it.id == lastActiveReader.value?.id }?.run {
+                onReaderSelected(this)
+            } ?: kotlin.run {
+                updateState(PaymentState.Discovered(list))
+            }
         } else {
             sendToast("No readers found")
             updateState(PaymentState.Init)
         }
     }
 
-    fun onPayClicked(amount: Int, path: PaymentPath) {
-        payment = Payment(amount)
+    fun onPayClicked(amount: Double, path: PaymentPath) {
+        payment = Payment(amount, "cad")
         this.path = path
-        discoverReaders()
+        if (paymentSDK.isConnected()) {
+            makePayment()
+        } else {
+            discoverReaders()
+        }
     }
 
     private fun updateState(state: PaymentState) {
@@ -124,6 +144,22 @@ class MainActivityViewModel @Inject constructor() : ViewModel() {
 
     fun onReaderSelected(reader: Reader) {
         updateState(PaymentState.Connecting(reader))
-        viewModelScope.launch { _connectReaderFlow.send(reader) }
+        paymentSDK.connectReader(reader)
+    }
+
+    private fun initializePaymentSdk() {
+        Timber.tag(Utils.LOGTAG).d("Initialize sdk - activity")
+        paymentSDK.initialize()
+        viewModelScope.launch {
+            paymentSDK.subscribe { onReaderEvent(it) }
+        }
+    }
+
+    fun onStop() {
+        paymentSDK.onStop()
+    }
+
+    fun removeSavedReader() {
+        paymentSDK.removeSavedReader()
     }
 }

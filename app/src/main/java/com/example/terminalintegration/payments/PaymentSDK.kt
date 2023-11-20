@@ -3,7 +3,7 @@ package com.example.terminalintegration.payments
 import android.annotation.SuppressLint
 import android.content.Context
 import com.example.terminalintegration.BuildConfig
-import com.example.terminalintegration.StorageManager
+import com.example.terminalintegration.ReaderStorageManager
 import com.example.terminalintegration.Utils
 import com.example.terminalintegration.payments.model.Payment
 import com.example.terminalintegration.payments.model.PaymentPath
@@ -14,10 +14,15 @@ import com.stripe.stripeterminal.Terminal
 import com.stripe.stripeterminal.external.callable.Callback
 import com.stripe.stripeterminal.external.callable.Cancelable
 import com.stripe.stripeterminal.external.callable.DiscoveryListener
+import com.stripe.stripeterminal.external.callable.PaymentIntentCallback
 import com.stripe.stripeterminal.external.callable.ReaderCallback
 import com.stripe.stripeterminal.external.callable.TerminalListener
+import com.stripe.stripeterminal.external.models.CaptureMethod
 import com.stripe.stripeterminal.external.models.ConnectionConfiguration
+import com.stripe.stripeterminal.external.models.ConnectionStatus
 import com.stripe.stripeterminal.external.models.DiscoveryConfiguration
+import com.stripe.stripeterminal.external.models.PaymentIntent
+import com.stripe.stripeterminal.external.models.PaymentIntentParameters
 import com.stripe.stripeterminal.external.models.Reader
 import com.stripe.stripeterminal.external.models.TerminalException
 import com.stripe.stripeterminal.log.LogLevel
@@ -39,32 +44,34 @@ import kotlin.coroutines.coroutineContext
 class PaymentSDK(
     private val context: Context,
     private val tokenProvider: TokenProvider,
-    private val storageManager: StorageManager,
+    private val storageManager: ReaderStorageManager,
     private val coroutineScope: CoroutineScope
 ) : TerminalListener {
 
     private var discoveryCancelable: Cancelable? = null
+    private var paymentCancelable: Cancelable? = null
 
     private val _lastActiveReader = MutableStateFlow<ReaderInfo?>(null)
     val lastActiveReader: StateFlow<ReaderInfo?> = _lastActiveReader
 
-    companion object {
-        private const val KEY_READER_ID = "pk-reader-id"
-        private const val KEY_READER_LABEL = "pk-reader-label"
+    private val terminal get() = Terminal.getInstance()
+
+    private val paymentCancellableCallback = object : Callback {
+        override fun onSuccess() {}
+        override fun onFailure(e: TerminalException) {}
     }
 
     init {
-        updateReader(
-            storageManager.getString(KEY_READER_ID),
-            storageManager.getString(KEY_READER_LABEL)
-        )
+        storageManager.getSavedReader()?.run {
+            updateReader(id, label)
+        }
     }
 
     @Inject
     constructor(
         @ApplicationContext context: Context,
         tokenProvider: TokenProvider,
-        storageManager: StorageManager
+        storageManager: ReaderStorageManager
     ) : this(
         context,
         tokenProvider,
@@ -105,7 +112,7 @@ class PaymentSDK(
             isSimulated = false,
             location = BuildConfig.STRIPE_LOCATION_ID
         )
-        discoveryCancelable = Terminal.getInstance().discoverReaders(
+        discoveryCancelable = terminal.discoverReaders(
             config,
             object : DiscoveryListener {
                 override fun onUpdateDiscoveredReaders(readers: List<Reader>) {
@@ -131,7 +138,7 @@ class PaymentSDK(
     fun connectReader(reader: Reader) {
         Timber.tag(Utils.LOGTAG).d("connect reader flow - sdk")
         val config = ConnectionConfiguration.InternetConnectionConfiguration(failIfInUse = true)
-        Terminal.getInstance().connectInternetReader(reader, config, object : ReaderCallback {
+        terminal.connectInternetReader(reader, config, object : ReaderCallback {
             override fun onSuccess(reader: Reader) {
                 Timber.tag(Utils.LOGTAG).d("connect reader flow - sdk : connected")
                 updateReader(reader.id, reader.label)
@@ -147,8 +154,7 @@ class PaymentSDK(
     }
 
     private fun saveReader(reader: Reader) {
-        storageManager.putString(KEY_READER_ID, reader.id)
-        storageManager.putString(KEY_READER_LABEL, reader.label)
+        storageManager.saveReader(ReaderInfo(reader.id ?: "", reader.label ?: ""))
     }
 
     private fun updateReader(id: String?, label: String?) {
@@ -160,7 +166,67 @@ class PaymentSDK(
     fun makePayment(payment: Payment) {
         //
         Timber.tag(Utils.LOGTAG).d("make payment flow - sdk")
+        createPaymentIntent(payment) {
+            collectPaymentMethod(it) {
+                confirmPayment(it) {
+                    publishEvent(TerminalReaderEvent.PaymentSuccess(it.status?.name.toString()))
+                }
+            }
+        }
     }
+
+    private fun createPaymentIntent(
+        payment: Payment,
+        failure: (TerminalException) -> Unit = { },
+        success: (PaymentIntent) -> Unit
+    ) {
+        val params = PaymentIntentParameters.Builder()
+            .setCaptureMethod(CaptureMethod.Automatic)
+            .setAmount((payment.amount*100).toLong())
+            .setCurrency(payment.currency)
+            .build()
+        terminal.createPaymentIntent(params, newPaymentIntentCallback(failure, success))
+    }
+
+    private fun collectPaymentMethod(
+        intent: PaymentIntent,
+        failure: (TerminalException) -> Unit = { },
+        success: (PaymentIntent) -> Unit
+    ) {
+        if (terminal.connectionStatus == ConnectionStatus.CONNECTED) {
+            paymentCancelable?.cancel(paymentCancellableCallback)
+            paymentCancelable = terminal.collectPaymentMethod(
+                intent,
+                newPaymentIntentCallback(failure, success)
+            )
+        } else {
+            publishEvent(TerminalReaderEvent.ReaderDisconnected)
+        }
+    }
+
+    private fun confirmPayment(
+        intent: PaymentIntent,
+        failure: (TerminalException) -> Unit = { },
+        success: (PaymentIntent) -> Unit
+    ) {
+        terminal.confirmPaymentIntent(intent, newPaymentIntentCallback(failure, success))
+    }
+
+    private fun newPaymentIntentCallback(
+        failure: (TerminalException) -> Unit,
+        success: (PaymentIntent) -> Unit,
+    ) = object : PaymentIntentCallback {
+        override fun onSuccess(paymentIntent: PaymentIntent) {
+            success(paymentIntent)
+        }
+
+        override fun onFailure(exception: TerminalException) {
+            publishEvent(TerminalReaderEvent.PaymentError(exception))
+            failure(exception)
+        }
+    }
+
+    fun isConnected() = terminal.connectionStatus == ConnectionStatus.CONNECTED
 
     fun onStop() {
         // If you're leaving the activity or fragment without selecting a reader,
@@ -170,5 +236,11 @@ class PaymentSDK(
             override fun onSuccess() {}
             override fun onFailure(e: TerminalException) {}
         })
+        paymentCancelable?.cancel(paymentCancellableCallback)
+    }
+
+    fun removeSavedReader() {
+        _lastActiveReader.value = null
+        storageManager.removeSavedReader()
     }
 }

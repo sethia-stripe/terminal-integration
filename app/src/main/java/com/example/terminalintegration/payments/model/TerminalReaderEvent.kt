@@ -9,5 +9,7 @@ sealed class TerminalReaderEvent {
     data class ReadersDiscoveryFailure(val e: Throwable) : TerminalReaderEvent()
 
     data class ReaderConnected(val reader: Reader) : TerminalReaderEvent()
-    data class PaymentResponse(val success: Boolean, val error: Any?) : TerminalReaderEvent()
+    data class PaymentSuccess(val status: String) : TerminalReaderEvent()
+
+    data class PaymentError(val error: Exception) : TerminalReaderEvent()
 }

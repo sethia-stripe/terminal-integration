@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.terminalintegration.Utils
+import com.example.terminalintegration.payments.model.Payment
 import com.example.terminalintegration.payments.model.PaymentPath
 import com.example.terminalintegration.payments.model.PaymentState
 import com.example.terminalintegration.payments.model.ReaderInfo
@@ -47,18 +48,15 @@ import timber.log.Timber
 @Composable
 fun Cart(
     data: CartUIData,
-    qty: Int,
-    price: Int,
-    maxQty: Int,
-    onPayClicked: (Int, PaymentPath) -> Unit = { _, _ -> },
+    onPayClicked: (Double, PaymentPath) -> Unit = { _, _ -> },
     onReaderDialogDismissed: () -> Unit = { },
     onReaderSelected: (Reader) -> Unit = { },
     onReaderRemoved: () -> Unit = { },
     modifier: Modifier = Modifier.padding(16.dp),
 ) {
     var expanded by remember { mutableStateOf(false) }
-    var selectedQty by remember { mutableStateOf(qty) }
-    var total by remember { mutableStateOf(selectedQty * price) }
+    var selectedQty by remember { mutableStateOf(data.qty) }
+    var total by remember { mutableStateOf(selectedQty * data.price) }
     var showPathDialog by remember { mutableStateOf(false) }
     var showDiscoveringDialog = data.paymentState is PaymentState.Discovering
     var showReaderDialog = data.paymentState is PaymentState.Discovered
@@ -69,7 +67,7 @@ fun Cart(
         .d("UI update flow : payment state - ${data.paymentState::class.simpleName}")
 
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = modifier) {
-        Text("Price per item: $${price}")
+        Text("Price per item: $${data.price}")
         Spacer(modifier = Modifier.size(16.dp))
         ExposedDropdownMenuBox(
             expanded = expanded,
@@ -96,12 +94,12 @@ fun Cart(
                     expanded = false
                 }
             ) {
-                repeat(maxQty) {
+                repeat(data.maxQty) {
                     DropdownMenuItem(
                         text = { Text(text = it.plus(1).toString()) },
                         onClick = {
                             selectedQty = it.plus(1)
-                            total = selectedQty * price
+                            total = selectedQty * data.price
                             expanded = false
                         }
                     )
@@ -129,6 +127,19 @@ fun Cart(
                 Button(onClick = { onReaderRemoved() }) {
                     Text("Remove")
                 }
+            }
+        }
+
+        if (data.payments.isNotEmpty()) {
+            data.payments.forEach {
+                Spacer(modifier = Modifier.size(16.dp))
+                Spacer(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(0.5.dp)
+                        .background(Color.LightGray)
+                )
+                Text("Amount: $${it.amount}, status : ${it.status}", modifier.padding(16.dp))
             }
         }
     }
@@ -254,8 +265,15 @@ fun ProgressDialog(message: String, cancellable: Boolean = false, onDismiss: () 
 @Composable
 fun CartPreview() {
     TerminalIntegrationTheme {
-        Cart(CartUIData(PaymentState.Init, null), 1, 10, 5)
+        Cart(CartUIData(1, 10.0, 5))
     }
 }
 
-data class CartUIData(val paymentState: PaymentState, val lastReader: ReaderInfo?)
+data class CartUIData(
+    val qty: Int,
+    val price: Double,
+    val maxQty: Int,
+    val paymentState: PaymentState = PaymentState.Init,
+    val lastReader: ReaderInfo? = null,
+    val payments: List<Payment> = emptyList(),
+)
