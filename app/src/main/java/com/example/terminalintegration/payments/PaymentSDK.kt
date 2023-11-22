@@ -24,6 +24,7 @@ import com.stripe.stripeterminal.external.models.DiscoveryConfiguration
 import com.stripe.stripeterminal.external.models.PaymentIntent
 import com.stripe.stripeterminal.external.models.PaymentIntentParameters
 import com.stripe.stripeterminal.external.models.PaymentIntentStatus
+import com.stripe.stripeterminal.external.models.PaymentMethodType
 import com.stripe.stripeterminal.external.models.Reader
 import com.stripe.stripeterminal.external.models.TerminalException
 import com.stripe.stripeterminal.log.LogLevel
@@ -64,6 +65,7 @@ class PaymentSDK(
         override fun onSuccess() {
             paymentIntentMap.clear()
         }
+
         override fun onFailure(e: TerminalException) {}
     }
 
@@ -180,11 +182,11 @@ class PaymentSDK(
 
     private fun postPaymentMethodCollection(intent: PaymentIntent) {
         confirmPayment(intent, {
-            when(it.paymentIntent?.status) {
+            when (it.paymentIntent?.status) {
                 null -> postPaymentIntentCreation(intent)
                 PaymentIntentStatus.REQUIRES_PAYMENT_METHOD -> postPaymentIntentCreation(intent)
                 PaymentIntentStatus.REQUIRES_CONFIRMATION -> postPaymentIntentCreation(intent)
-                PaymentIntentStatus.CANCELED -> cancelPendingPaymentIntents()
+                PaymentIntentStatus.CANCELED -> TODO()
                 PaymentIntentStatus.PROCESSING -> TODO()
                 PaymentIntentStatus.REQUIRES_CAPTURE -> TODO()
                 PaymentIntentStatus.SUCCEEDED -> TODO()
@@ -204,9 +206,13 @@ class PaymentSDK(
             success(intent)
             return
         }
-        val params = PaymentIntentParameters.Builder()
+        val paymentMethods = listOf(
+            PaymentMethodType.CARD_PRESENT,
+            PaymentMethodType.INTERAC_PRESENT
+        )
+        val params = PaymentIntentParameters.Builder(paymentMethods)
             .setCaptureMethod(CaptureMethod.Automatic)
-            .setAmount((payment.amount*100).toLong())
+            .setAmount(payment.amount)
             .setCurrency(payment.currency)
             .build()
         terminal.createPaymentIntent(params, newPaymentIntentCallback(failure) {
@@ -233,15 +239,10 @@ class PaymentSDK(
 
     private fun confirmPayment(
         intent: PaymentIntent,
-        failure: (TerminalException) -> Unit = { onPaymentError(it) },
+        failure: (TerminalException) -> Unit,
         success: (PaymentIntent) -> Unit
     ) {
         terminal.confirmPaymentIntent(intent, newPaymentIntentCallback(failure, success))
-    }
-
-    private fun onPaymentError(exception: TerminalException) {
-        publishEvent(TerminalReaderEvent.PaymentError(exception))
-        cancelPendingPaymentIntents()
     }
 
     private fun newPaymentIntentCallback(
@@ -253,6 +254,7 @@ class PaymentSDK(
         }
 
         override fun onFailure(exception: TerminalException) {
+            publishEvent(TerminalReaderEvent.PaymentError(exception))
             failure(exception)
         }
     }

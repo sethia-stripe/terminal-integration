@@ -123,7 +123,7 @@ class MainActivityViewModel @Inject constructor(private val paymentSDK: PaymentS
         }
     }
 
-    fun onPayClicked(amount: Double, path: PaymentPath) {
+    fun onPayClicked(amount: Long, path: PaymentPath) {
         payment = Payment(amount, "cad")
         this.path = path
         if (paymentSDK.isConnected()) {

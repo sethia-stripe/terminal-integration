@@ -8,6 +8,7 @@ import javax.inject.Inject
 class ReaderStorageManager @Inject constructor(@ApplicationContext context: Context) {
 
     private val prefs = context.getSharedPreferences("tie-storage", 0)
+
     companion object {
         private const val KEY_READER_ID = "pk-reader-id"
         private const val KEY_READER_LABEL = "pk-reader-label"

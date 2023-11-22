@@ -49,7 +49,7 @@ import timber.log.Timber
 @Composable
 fun Cart(
     data: CartUIData,
-    onPayClicked: (Double, PaymentPath) -> Unit = { _, _ -> },
+    onPayClicked: (Long, PaymentPath) -> Unit = { _, _ -> },
     onReaderDialogDismissed: () -> Unit = { },
     onReaderSelected: (Reader) -> Unit = { },
     onReaderRemoved: () -> Unit = { },
@@ -70,7 +70,7 @@ fun Cart(
         .d("UI update flow : payment state - ${data.paymentState::class.simpleName}")
 
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = modifier) {
-        Text("Price per item: $${data.price}")
+        Text("Price per item: $${data.price.toDisplayFormat()}")
         Spacer(modifier = Modifier.size(16.dp))
         ExposedDropdownMenuBox(
             expanded = expanded,
@@ -137,7 +137,7 @@ fun Cart(
             ) {
                 PaymentResult.values().forEach {
                     DropdownMenuItem(
-                        text = { Text(text = it.name ) },
+                        text = { Text(text = it.name) },
                         onClick = {
                             desiredResult = it
                             total = (selectedQty * data.price) + it.addendum
@@ -148,10 +148,10 @@ fun Cart(
             }
         }
         Spacer(modifier = Modifier.size(16.dp))
-        Text("Cart Total: $${total}", fontWeight = FontWeight(800))
+        Text("Cart Total: $${total.toDisplayFormat()}", fontWeight = FontWeight(800))
         Spacer(modifier = Modifier.size(16.dp))
         Button(onClick = { showPathDialog = true }) {
-            Text("Pay $${total}")
+            Text("Pay $${total.toDisplayFormat()}")
         }
 
         if (data.lastReader != null) {
@@ -180,7 +180,10 @@ fun Cart(
                         .height(0.5.dp)
                         .background(Color.LightGray)
                 )
-                Text("Amount: $${it.amount}, status : ${it.status}", modifier.padding(16.dp))
+                Text(
+                    "Amount: $${it.amount.toDisplayFormat()}, status : ${it.status}",
+                    modifier.padding(16.dp)
+                )
             }
         }
     }
@@ -301,18 +304,20 @@ fun ProgressDialog(message: String, cancellable: Boolean = false, onDismiss: () 
     }
 }
 
+private fun Long.toDisplayFormat() = this.toDouble().div(100)
+
 
 @Preview(showBackground = true)
 @Composable
 fun CartPreview() {
     TerminalIntegrationTheme {
-        Cart(CartUIData(1, 10.0, 5))
+        Cart(CartUIData(1, 1000L, 5))
     }
 }
 
 data class CartUIData(
     val qty: Int,
-    val price: Double,
+    val price: Long,
     val maxQty: Int,
     val paymentState: PaymentState = PaymentState.Init,
     val lastReader: ReaderInfo? = null,

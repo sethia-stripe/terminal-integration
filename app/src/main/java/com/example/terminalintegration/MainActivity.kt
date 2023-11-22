@@ -47,15 +47,20 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    Cart(CartUIData(1, 10.0, 5, paymentState, readerInfo, payments),  { total, path ->
-                        viewModel.onPayClicked(total, path)
-                    }, {
-                        viewModel.onDiscoveredDialogDismissed()
-                    }, {
-                        viewModel.onReaderSelected(it)
-                    }, {
-                        viewModel.removeSavedReader()
-                    })
+                    Cart(
+                        CartUIData(1, 1000, 5, paymentState, readerInfo, payments),
+                        { total, path ->
+                            viewModel.onPayClicked(total, path)
+                        },
+                        {
+                            viewModel.onDiscoveredDialogDismissed()
+                        },
+                        {
+                            viewModel.onReaderSelected(it)
+                        },
+                        {
+                            viewModel.removeSavedReader()
+                        })
                 }
             }
         }
