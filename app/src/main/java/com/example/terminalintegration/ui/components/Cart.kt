@@ -37,6 +37,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.example.terminalintegration.Utils
 import com.example.terminalintegration.payments.model.Payment
 import com.example.terminalintegration.payments.model.PaymentPath
+import com.example.terminalintegration.payments.model.PaymentResult
 import com.example.terminalintegration.payments.model.PaymentState
 import com.example.terminalintegration.payments.model.ReaderInfo
 import com.example.terminalintegration.ui.theme.TerminalIntegrationTheme
@@ -55,8 +56,10 @@ fun Cart(
     modifier: Modifier = Modifier.padding(16.dp),
 ) {
     var expanded by remember { mutableStateOf(false) }
+    var desiredResultExpanded by remember { mutableStateOf(false) }
     var selectedQty by remember { mutableStateOf(data.qty) }
-    var total by remember { mutableStateOf(selectedQty * data.price) }
+    var desiredResult by remember { mutableStateOf(PaymentResult.SUCCESS) }
+    var total by remember { mutableStateOf(((selectedQty * data.price) + desiredResult.addendum)) }
     var showPathDialog by remember { mutableStateOf(false) }
     var showDiscoveringDialog = data.paymentState is PaymentState.Discovering
     var showReaderDialog = data.paymentState is PaymentState.Discovered
@@ -99,8 +102,46 @@ fun Cart(
                         text = { Text(text = it.plus(1).toString()) },
                         onClick = {
                             selectedQty = it.plus(1)
-                            total = selectedQty * data.price
+                            total = (selectedQty * data.price) + desiredResult.addendum
                             expanded = false
+                        }
+                    )
+                }
+            }
+        }
+        Spacer(modifier = Modifier.size(16.dp))
+        ExposedDropdownMenuBox(
+            expanded = desiredResultExpanded,
+            onExpandedChange = {
+                desiredResultExpanded = !desiredResultExpanded
+            }
+        ) {
+            TextField(
+                readOnly = true,
+                value = desiredResult.name,
+                onValueChange = { },
+                label = { Text("Desired Result") },
+                trailingIcon = {
+                    ExposedDropdownMenuDefaults.TrailingIcon(
+                        expanded = desiredResultExpanded
+                    )
+                },
+                colors = ExposedDropdownMenuDefaults.textFieldColors(),
+                modifier = Modifier.menuAnchor()
+            )
+            ExposedDropdownMenu(
+                expanded = desiredResultExpanded,
+                onDismissRequest = {
+                    desiredResultExpanded = false
+                }
+            ) {
+                PaymentResult.values().forEach {
+                    DropdownMenuItem(
+                        text = { Text(text = it.name ) },
+                        onClick = {
+                            desiredResult = it
+                            total = (selectedQty * data.price) + it.addendum
+                            desiredResultExpanded = false
                         }
                     )
                 }

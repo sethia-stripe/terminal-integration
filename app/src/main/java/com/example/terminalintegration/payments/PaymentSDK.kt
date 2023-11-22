@@ -23,6 +23,7 @@ import com.stripe.stripeterminal.external.models.ConnectionStatus
 import com.stripe.stripeterminal.external.models.DiscoveryConfiguration
 import com.stripe.stripeterminal.external.models.PaymentIntent
 import com.stripe.stripeterminal.external.models.PaymentIntentParameters
+import com.stripe.stripeterminal.external.models.PaymentIntentStatus
 import com.stripe.stripeterminal.external.models.Reader
 import com.stripe.stripeterminal.external.models.TerminalException
 import com.stripe.stripeterminal.log.LogLevel
@@ -36,6 +37,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import timber.log.Timber
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.coroutineContext
@@ -56,8 +58,12 @@ class PaymentSDK(
 
     private val terminal get() = Terminal.getInstance()
 
+    private val paymentIntentMap = mutableMapOf<UUID, PaymentIntent>()
+
     private val paymentCancellableCallback = object : Callback {
-        override fun onSuccess() {}
+        override fun onSuccess() {
+            paymentIntentMap.clear()
+        }
         override fun onFailure(e: TerminalException) {}
     }
 
@@ -164,14 +170,27 @@ class PaymentSDK(
     }
 
     fun makePayment(payment: Payment) {
-        //
         Timber.tag(Utils.LOGTAG).d("make payment flow - sdk")
-        createPaymentIntent(payment) {
-            collectPaymentMethod(it) {
-                confirmPayment(it) {
-                    publishEvent(TerminalReaderEvent.PaymentSuccess(it.status?.name.toString()))
-                }
+        createPaymentIntent(payment) { postPaymentIntentCreation(it) }
+    }
+
+    private fun postPaymentIntentCreation(intent: PaymentIntent) {
+        collectPaymentMethod(intent) { postPaymentMethodCollection(it) }
+    }
+
+    private fun postPaymentMethodCollection(intent: PaymentIntent) {
+        confirmPayment(intent, {
+            when(it.paymentIntent?.status) {
+                null -> postPaymentIntentCreation(intent)
+                PaymentIntentStatus.REQUIRES_PAYMENT_METHOD -> postPaymentIntentCreation(intent)
+                PaymentIntentStatus.REQUIRES_CONFIRMATION -> postPaymentIntentCreation(intent)
+                PaymentIntentStatus.CANCELED -> cancelPendingPaymentIntents()
+                PaymentIntentStatus.PROCESSING -> TODO()
+                PaymentIntentStatus.REQUIRES_CAPTURE -> TODO()
+                PaymentIntentStatus.SUCCEEDED -> TODO()
             }
+        }) {
+            publishEvent(TerminalReaderEvent.PaymentSuccess(it.status?.name.toString()))
         }
     }
 
@@ -180,12 +199,20 @@ class PaymentSDK(
         failure: (TerminalException) -> Unit = { },
         success: (PaymentIntent) -> Unit
     ) {
+        val intent = paymentIntentMap[payment.id]
+        if (intent != null) {
+            success(intent)
+            return
+        }
         val params = PaymentIntentParameters.Builder()
             .setCaptureMethod(CaptureMethod.Automatic)
             .setAmount((payment.amount*100).toLong())
             .setCurrency(payment.currency)
             .build()
-        terminal.createPaymentIntent(params, newPaymentIntentCallback(failure, success))
+        terminal.createPaymentIntent(params, newPaymentIntentCallback(failure) {
+            paymentIntentMap[payment.id] = it
+            success(it)
+        })
     }
 
     private fun collectPaymentMethod(
@@ -206,10 +233,15 @@ class PaymentSDK(
 
     private fun confirmPayment(
         intent: PaymentIntent,
-        failure: (TerminalException) -> Unit = { },
+        failure: (TerminalException) -> Unit = { onPaymentError(it) },
         success: (PaymentIntent) -> Unit
     ) {
         terminal.confirmPaymentIntent(intent, newPaymentIntentCallback(failure, success))
+    }
+
+    private fun onPaymentError(exception: TerminalException) {
+        publishEvent(TerminalReaderEvent.PaymentError(exception))
+        cancelPendingPaymentIntents()
     }
 
     private fun newPaymentIntentCallback(
@@ -221,7 +253,6 @@ class PaymentSDK(
         }
 
         override fun onFailure(exception: TerminalException) {
-            publishEvent(TerminalReaderEvent.PaymentError(exception))
             failure(exception)
         }
     }
@@ -237,10 +268,25 @@ class PaymentSDK(
             override fun onFailure(e: TerminalException) {}
         })
         paymentCancelable?.cancel(paymentCancellableCallback)
+        cancelPendingPaymentIntents()
     }
 
     fun removeSavedReader() {
         _lastActiveReader.value = null
         storageManager.removeSavedReader()
+    }
+
+    private fun cancelPendingPaymentIntents() {
+        paymentIntentMap.forEach {
+            terminal.cancelPaymentIntent(it.value, object : PaymentIntentCallback {
+                override fun onFailure(e: TerminalException) {
+                    paymentIntentMap.remove(it.key)
+                }
+
+                override fun onSuccess(paymentIntent: PaymentIntent) {
+                    paymentIntentMap.remove(it.key)
+                }
+            })
+        }
     }
 }
