@@ -12,11 +12,11 @@ val stripeLocationId = gradleLocalProperties(rootDir).getProperty("stripe_locati
 
 
 android {
-    namespace = "com.example.terminalintegration"
+    namespace = "com.sethia.terminalintegration"
     compileSdk = 33
 
     defaultConfig {
-        applicationId = "com.example.terminalintegration"
+        applicationId = "com.sethia.terminalintegration"
         minSdk = 26
         targetSdk = 33
         versionCode = 1
@@ -29,7 +29,7 @@ android {
     }
 
     buildTypes {
-        debug {
+        defaultConfig {
             buildConfigField("String", "STRIPE_API_KEY", stripeApiKey)
             buildConfigField("String", "STRIPE_LOCATION_ID", stripeLocationId)
         }
