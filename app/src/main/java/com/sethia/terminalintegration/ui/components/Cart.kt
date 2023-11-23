@@ -173,6 +173,7 @@ fun Cart(
                     .height(0.5.dp)
                     .background(Color.LightGray)
             )
+            Spacer(modifier = Modifier.size(16.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Last Reader: ${data.lastReader.label}")
                 Spacer(modifier = Modifier.size(16.dp))
@@ -191,10 +192,8 @@ fun Cart(
                         .height(0.5.dp)
                         .background(Color.LightGray)
                 )
-                Text(
-                    "Amount: $${it.amount.toDisplayFormat()}, status : ${it.status}",
-                    modifier.padding(16.dp)
-                )
+                Spacer(modifier = Modifier.size(16.dp))
+                Text("Amount: $${it.amount.toDisplayFormat()}, status : ${it.status}", Modifier.fillMaxWidth())
             }
         }
     }
