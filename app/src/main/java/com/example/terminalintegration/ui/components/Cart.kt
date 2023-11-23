@@ -199,7 +199,7 @@ fun Cart(
         }
     }
     if (showPathDialog) {
-        PaymentPathDialog() {
+        PaymentPathDialog(data.paymentPaths) {
             showPathDialog = false
             onPayClicked(total, it)
         }
@@ -267,9 +267,9 @@ fun Cart(
 }
 
 @Composable
-fun PaymentPathDialog(onClick: (PaymentPath) -> Unit) {
-    ListDialog(labels = PaymentPath.values().map { it.name }) {
-        onClick(PaymentPath.values()[it])
+fun PaymentPathDialog(list: List<PaymentPath>, onClick: (PaymentPath) -> Unit) {
+    ListDialog(labels = list.map { it.name }) {
+        onClick(list[it])
     }
 }
 
