@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -19,6 +20,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -53,6 +55,8 @@ fun Cart(
     onReaderDialogDismissed: () -> Unit = { },
     onReaderSelected: (Reader) -> Unit = { },
     onReaderRemoved: () -> Unit = { },
+    onPaymentErrorDismissed: () -> Unit = { },
+    onPaymentRetryClicked: () -> Unit = { },
     modifier: Modifier = Modifier.padding(16.dp),
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -65,6 +69,7 @@ fun Cart(
     var showReaderDialog = data.paymentState is PaymentState.Discovered
     var showConnectingDialog = data.paymentState is PaymentState.Connecting
     var showPaymentInProcessDialog = data.paymentState is PaymentState.PaymentInitiated
+    var showPaymentErrorDialog = data.paymentState is PaymentState.PaymentError
 
     Timber.tag(Utils.LOGTAG)
         .d("UI update flow : payment state - ${data.paymentState::class.simpleName}")
@@ -150,7 +155,13 @@ fun Cart(
         Spacer(modifier = Modifier.size(16.dp))
         Text("Cart Total: $${total.toDisplayFormat()}", fontWeight = FontWeight(800))
         Spacer(modifier = Modifier.size(16.dp))
-        Button(onClick = { showPathDialog = true }) {
+        Button(onClick = {
+            if (data.paymentPaths.size > 1) {
+                showPathDialog = true
+            } else {
+                onPayClicked(total, data.paymentPaths.first())
+            }
+        }) {
             Text("Pay $${total.toDisplayFormat()}")
         }
 
@@ -217,6 +228,41 @@ fun Cart(
         ProgressDialog(message = "Processing...") {
             showPaymentInProcessDialog = false
         }
+    }
+    if (showPaymentErrorDialog) {
+        AlertDialog(
+            modifier = Modifier.wrapContentHeight(),
+            title = {
+                Text(text = "Payment failed")
+            },
+            text = {
+                Text(text = (data.paymentState as PaymentState.PaymentError).error)
+            },
+            onDismissRequest = {
+                onPaymentErrorDismissed()
+                showPaymentErrorDialog = false
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onPaymentRetryClicked()
+                        showPaymentErrorDialog = false
+                    }
+                ) {
+                    Text("Retry")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        onPaymentErrorDismissed()
+                        showPaymentErrorDialog = false
+                    }
+                ) {
+                    Text("Dismiss")
+                }
+            }
+        )
     }
 }
 
@@ -319,6 +365,7 @@ data class CartUIData(
     val qty: Int,
     val price: Long,
     val maxQty: Int,
+    val paymentPaths: List<PaymentPath> = PaymentPath.values().toList(),
     val paymentState: PaymentState = PaymentState.Init,
     val lastReader: ReaderInfo? = null,
     val payments: List<Payment> = emptyList(),

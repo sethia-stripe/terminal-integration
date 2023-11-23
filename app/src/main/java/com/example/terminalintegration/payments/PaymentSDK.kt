@@ -57,6 +57,9 @@ class PaymentSDK(
     private val _lastActiveReader = MutableStateFlow<ReaderInfo?>(null)
     val lastActiveReader: StateFlow<ReaderInfo?> = _lastActiveReader
 
+    private val _handoffAvailable = MutableStateFlow(false)
+    val handoffAvailable: StateFlow<Boolean> = _handoffAvailable
+
     private val terminal get() = Terminal.getInstance()
 
     private val paymentIntentMap = mutableMapOf<UUID, PaymentIntent>()
@@ -93,6 +96,9 @@ class PaymentSDK(
         if (!Terminal.isInitialized()) {
             Timber.tag(Utils.LOGTAG).d("Initialize sdk - sdk")
             Terminal.initTerminal(context, LogLevel.VERBOSE, tokenProvider, this)
+            discoverReaders(PaymentPath.HANDOFF, {
+                _handoffAvailable.value = it.isNotEmpty()
+            }) { }
         }
     }
 
@@ -113,19 +119,18 @@ class PaymentSDK(
     }
 
     @SuppressLint("MissingPermission")
-    fun discover(paymentPath: PaymentPath) {
-        Timber.tag(Utils.LOGTAG).d("Discover reader flow - sdk")
+    private fun discoverReaders(
+        paymentPath: PaymentPath,
+        success: (List<Reader>) -> Unit,
+        failure: (TerminalException) -> Unit
+    ) {
         onStop()
-        val config = DiscoveryConfiguration.InternetDiscoveryConfiguration(
-            isSimulated = false,
-            location = BuildConfig.STRIPE_LOCATION_ID
-        )
+        val config = createDiscoveryConfig(paymentPath)
         discoveryCancelable = terminal.discoverReaders(
             config,
             object : DiscoveryListener {
                 override fun onUpdateDiscoveredReaders(readers: List<Reader>) {
-                    Timber.tag(Utils.LOGTAG).d("Discover reader flow - sdk : discovered")
-                    publishEvent(TerminalReaderEvent.ReadersDiscovered(readers))
+                    success(readers.filter { it.isOnline() })
                 }
             },
             object : Callback {
@@ -134,31 +139,76 @@ class PaymentSDK(
                 }
 
                 override fun onFailure(e: TerminalException) {
-                    if (e.errorCode != TerminalException.TerminalErrorCode.CANCELED) {
-                        Timber.tag(Utils.LOGTAG).e(e)
-                        publishEvent(TerminalReaderEvent.ReadersDiscoveryFailure(e))
-                    }
+                    failure(e)
                 }
             }
         )
     }
 
-    fun connectReader(reader: Reader) {
-        Timber.tag(Utils.LOGTAG).d("connect reader flow - sdk")
-        val config = ConnectionConfiguration.InternetConnectionConfiguration(failIfInUse = true)
-        terminal.connectInternetReader(reader, config, object : ReaderCallback {
-            override fun onSuccess(reader: Reader) {
-                Timber.tag(Utils.LOGTAG).d("connect reader flow - sdk : connected")
-                updateReader(reader.id, reader.label)
-                saveReader(reader)
-                publishEvent(TerminalReaderEvent.ReaderConnected(reader))
-            }
 
-            override fun onFailure(e: TerminalException) {
-                e.printStackTrace()
-                publishEvent(TerminalReaderEvent.ReaderDisconnected)
+    fun discover(paymentPath: PaymentPath) {
+        Timber.tag(Utils.LOGTAG).d("Discover reader flow - sdk")
+        discoverReaders(paymentPath, {
+            Timber.tag(Utils.LOGTAG).d("Discover reader flow - sdk : discovered")
+            publishEvent(TerminalReaderEvent.ReadersDiscovered(it))
+        }, {
+            if (it.errorCode != TerminalException.TerminalErrorCode.CANCELED) {
+                Timber.tag(Utils.LOGTAG).e(it)
+                publishEvent(TerminalReaderEvent.ReadersDiscoveryFailure(it))
             }
         })
+    }
+
+    private fun createDiscoveryConfig(paymentPath: PaymentPath): DiscoveryConfiguration {
+        return when (paymentPath) {
+            PaymentPath.HANDOFF -> DiscoveryConfiguration.HandoffDiscoveryConfiguration()
+            PaymentPath.SERVER, PaymentPath.INTERNET -> DiscoveryConfiguration.InternetDiscoveryConfiguration(
+                isSimulated = false,
+                location = BuildConfig.STRIPE_LOCATION_ID
+            )
+
+            PaymentPath.BLUETOOTH -> DiscoveryConfiguration.BluetoothDiscoveryConfiguration(
+                timeout = 10000,
+                isSimulated = false
+            )
+        }
+    }
+
+    fun connectReader(paymentPath: PaymentPath, reader: Reader) {
+        if (reader.id != currentReader?.id) {
+            disconnectReader()
+        }
+        Timber.tag(Utils.LOGTAG).d("connect reader flow - sdk")
+        when (paymentPath) {
+            PaymentPath.HANDOFF -> connectHandoffReader(reader)
+            PaymentPath.INTERNET -> connectInternetReader(reader)
+            PaymentPath.BLUETOOTH -> TODO()
+            PaymentPath.SERVER -> TODO()
+        }
+    }
+
+    private fun connectHandoffReader(reader: Reader) {
+        val config = ConnectionConfiguration.HandoffConnectionConfiguration()
+        terminal.connectHandoffReader(reader, config, null, newReaderCallback())
+    }
+
+    private fun connectInternetReader(reader: Reader) {
+        val config = ConnectionConfiguration.InternetConnectionConfiguration(failIfInUse = true)
+        terminal.connectInternetReader(reader, config, newReaderCallback())
+    }
+
+    private fun newReaderCallback() = object : ReaderCallback {
+        override fun onSuccess(reader: Reader) {
+            Timber.tag(Utils.LOGTAG).d("connect reader flow - sdk : connected")
+            updateReader(reader.id, reader.label)
+            saveReader(reader)
+            publishEvent(TerminalReaderEvent.ReaderConnected(reader))
+        }
+
+        override fun onFailure(e: TerminalException) {
+            e.printStackTrace()
+            publishEvent(TerminalReaderEvent.ReaderDisconnected)
+        }
     }
 
     private fun saveReader(reader: Reader) {
@@ -243,6 +293,7 @@ class PaymentSDK(
         success: (PaymentIntent) -> Unit
     ) {
         terminal.confirmPaymentIntent(intent, newPaymentIntentCallback(failure, success))
+
     }
 
     private fun newPaymentIntentCallback(
@@ -269,8 +320,7 @@ class PaymentSDK(
             override fun onSuccess() {}
             override fun onFailure(e: TerminalException) {}
         })
-        paymentCancelable?.cancel(paymentCancellableCallback)
-        cancelPendingPaymentIntents()
+        discoveryCancelable = null
     }
 
     fun removeSavedReader() {
@@ -291,4 +341,26 @@ class PaymentSDK(
             })
         }
     }
+
+    fun onDestroy() {
+        paymentCancelable?.cancel(paymentCancellableCallback)
+        cancelPendingPaymentIntents()
+        disconnectReader()
+    }
+
+    private fun disconnectReader() {
+        currentReader?.also {
+            terminal.disconnectReader(object : Callback {
+                override fun onFailure(e: TerminalException) {
+                }
+
+                override fun onSuccess() {
+                }
+            })
+        }
+    }
+
+    private val currentReader get() = terminal.connectedReader
+
+    private fun Reader.isOnline() = this.networkStatus == Reader.NetworkStatus.ONLINE
 }

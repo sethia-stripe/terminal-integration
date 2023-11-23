@@ -100,7 +100,9 @@ dependencies {
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
-    implementation("com.stripe:stripeterminal:3.2.0")
+
+    implementation("com.stripe:stripeterminal-core:3.2.0")
+    implementation("com.stripe:stripeterminal-handoffclient:3.2.0")
     implementation("com.stripe:stripe-java:17.14.0")
 
 }

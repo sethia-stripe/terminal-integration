@@ -41,6 +41,7 @@ class MainActivity : ComponentActivity() {
             val paymentState by viewModel.paymentState.collectAsStateWithLifecycle()
             val readerInfo by viewModel.lastActiveReader.collectAsStateWithLifecycle()
             val payments by viewModel.payments.collectAsStateWithLifecycle()
+            val paths by viewModel.availablePaths.collectAsStateWithLifecycle()
             TerminalIntegrationTheme {
                 // A surface container using the 'background' color from the theme
                 Surface(
@@ -48,7 +49,7 @@ class MainActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background
                 ) {
                     Cart(
-                        CartUIData(1, 1000, 5, paymentState, readerInfo, payments),
+                        CartUIData(1, 1000, 5, paths, paymentState, readerInfo, payments),
                         { total, path ->
                             viewModel.onPayClicked(total, path)
                         },
@@ -60,6 +61,10 @@ class MainActivity : ComponentActivity() {
                         },
                         {
                             viewModel.removeSavedReader()
+                        }, {
+                            viewModel.onPaymentErrorDismissed()
+                        }, {
+                            viewModel.onPaymentErrorRetryClicked()
                         })
                 }
             }

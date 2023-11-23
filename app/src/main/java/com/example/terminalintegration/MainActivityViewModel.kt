@@ -12,8 +12,11 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import javax.inject.Inject
@@ -29,6 +32,13 @@ class MainActivityViewModel @Inject constructor(private val paymentSDK: PaymentS
     val payments: StateFlow<List<Payment>> = _payments
 
     val lastActiveReader = paymentSDK.lastActiveReader
+    private val nonAoDPaths = PaymentPath.values().toMutableList().apply {
+        remove(PaymentPath.HANDOFF)
+    }
+
+    val availablePaths = paymentSDK.handoffAvailable.mapLatest {
+        if (it) listOf(PaymentPath.HANDOFF) else nonAoDPaths
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, nonAoDPaths)
 
     private val _toastFlow = Channel<String>()
     val toastFlow: Flow<String> = _toastFlow.receiveAsFlow()
@@ -70,7 +80,6 @@ class MainActivityViewModel @Inject constructor(private val paymentSDK: PaymentS
     }
 
     private fun onPaymentError(error: Exception) {
-        sendToast("Payment failed: $error")
         updateState(PaymentState.PaymentError(error.toString()))
     }
 
@@ -104,7 +113,6 @@ class MainActivityViewModel @Inject constructor(private val paymentSDK: PaymentS
     private fun makePayment() {
         payment?.also {
             Timber.tag(Utils.LOGTAG).d("make payment flow - viewmodel")
-            sendToast("Make Payment")
             updateState(PaymentState.PaymentInitiated(it))
             paymentSDK.makePayment(it)
         }
@@ -112,7 +120,9 @@ class MainActivityViewModel @Inject constructor(private val paymentSDK: PaymentS
 
     private fun onReadersDiscovered(list: List<Reader>) {
         if (list.isNotEmpty()) {
-            list.find { it.id == lastActiveReader.value?.id }?.run {
+            val reader = list.find { it.id == lastActiveReader.value?.id }
+                ?: list.firstOrNull()?.takeIf { paymentSDK.handoffAvailable.value }
+            reader?.run {
                 onReaderSelected(this)
             } ?: kotlin.run {
                 updateState(PaymentState.Discovered(list))
@@ -126,6 +136,10 @@ class MainActivityViewModel @Inject constructor(private val paymentSDK: PaymentS
     fun onPayClicked(amount: Long, path: PaymentPath) {
         payment = Payment(amount, "cad")
         this.path = path
+        initiatePayment()
+    }
+
+    private fun initiatePayment() {
         if (paymentSDK.isConnected()) {
             makePayment()
         } else {
@@ -144,7 +158,7 @@ class MainActivityViewModel @Inject constructor(private val paymentSDK: PaymentS
 
     fun onReaderSelected(reader: Reader) {
         updateState(PaymentState.Connecting(reader))
-        paymentSDK.connectReader(reader)
+        path?.run { paymentSDK.connectReader(this, reader) }
     }
 
     private fun initializePaymentSdk() {
@@ -161,5 +175,18 @@ class MainActivityViewModel @Inject constructor(private val paymentSDK: PaymentS
 
     fun removeSavedReader() {
         paymentSDK.removeSavedReader()
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        paymentSDK.onDestroy()
+    }
+
+    fun onPaymentErrorDismissed() {
+        updateState(PaymentState.Init)
+    }
+
+    fun onPaymentErrorRetryClicked() {
+        initiatePayment()
     }
 }
